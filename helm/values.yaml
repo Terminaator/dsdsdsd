@@ -1,0 +1,13 @@
+imagePullSecrets: registry-gitlab-key
+
+ingress:
+  host: devkluster.ehr.ee
+  tlsSecret: redis-dev-cert
+
+proxy:
+  name: redis-proxy
+  replicas: 1
+  repository: __CI_REGISTRY_IMAGE__
+  imagePullPolicy: Always
+
+proxyConnectionSecret: redis-proxy

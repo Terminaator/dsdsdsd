@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.proxy.name }}
+spec:
+  serviceName: {{ .Values.proxy.name }}
+  replicas: {{ .Values.proxy.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.proxy.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.proxy.name }}
+    spec:
+      containers:
+        - name: {{ .Values.proxy.name }}
+          image: {{ .Values.proxy.repository }}
+          imagePullPolicy: {{ .Values.proxy.imagePullPolicy }}
+          ports:
+            - containerPort: 9999
+            - containerPort: 8080
+          volumeMounts:
+            - name: config-files
+              mountPath: ./app/conf
+          env:
+          - name: CLIENTS_FILE_PATH
+            value: "./conf/init.json"
+          - name: SENTINEL_MASTER_NAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.proxyConnectionSecret }}
+                key: SENTINEL_MASTER_NAME
+          - name: SENTINEL_IP
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.proxyConnectionSecret }}
+                key: SENTINEL_IP
+          - name: SENTINEL_PORT
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.proxyConnectionSecret }}
+                key: SENTINEL_PORT
+          - name: API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.proxyConnectionSecret }}
+                key: API_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 3
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecrets }}
+      volumes:
+        - name: config-files
+          configMap:
+            name: {{ .Values.proxy.name }}
+            items:
+              - key: init_json
+                path: init.json
+        
