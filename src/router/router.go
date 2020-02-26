@@ -3,9 +3,7 @@ package router
 import (
 	"log"
 	"net/http"
-	"proxy/src/api"
-	"proxy/src/api/auth"
-	"proxy/src/clients"
+	"proxy/src/router/api"
 	"proxy/src/sentinel"
 
 	"github.com/gorilla/mux"

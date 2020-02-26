@@ -1,75 +1,76 @@
 package redis
 
 import (
-	"errors"
-	"log"
 	"net"
+	"proxy/src/resp"
 	"proxy/src/sentinel"
-	"proxy/src/util"
 	"proxy/src/variables"
-	"time"
 )
+
+type RedisInterface interface {
+	Do([]byte) []byte
+	Close()
+}
 
 type Redis struct {
 	conn     *net.TCPConn
-	Sentinel *sentinel.Sentinel
-	Host_ip  string
+	sentinel sentinel.SentinelInterface
+}
+
+func (r *Redis) read() []byte {
+	if buf, err := resp.NewReader(r.conn).ReadObject(); err == nil {
+		return buf
+	}
+	return variables.ERROR_READ_REDIS
+}
+
+func (r *Redis) cmd(in []byte) error {
+	if r.conn != nil {
+		_, err := r.conn.Write(in)
+		return err
+	}
+
+	return variables.ErrWriting
+}
+
+func (r *Redis) Do(in []byte) []byte {
+	return r.do(in, 0)
+}
+
+func (r *Redis) do(in []byte, timeout int) []byte {
+	if r.conn == nil {
+		r.connect()
+	}
+
+	if err := r.cmd(in); err == nil {
+		return r.read()
+	}
+
+	r.conn = nil
+
+	if timeout == 10 {
+		return variables.ERROR_TIMEOUT_REDIS
+	}
+
+	return r.do(in, timeout+1)
+
 }
 
 func (r *Redis) Close() {
 	if r.conn != nil {
-		defer r.conn.Close()
 		r.conn.Write(variables.REDIS_QUIT)
+		r.conn.Close()
 	}
 }
 
-func (r *Redis) read() []byte {
-	if buf, err := util.NewReader(r.conn).ReadObject(); err == nil {
-		return buf
-	} else {
-		return variables.ERROR_READ_REDIS
-	}
-}
-
-func (r *Redis) cmd(out []byte) error {
-	if r.conn != nil {
-		_, err := r.conn.Write(out)
-		return err
-	} else {
-		return errors.New("conn is null")
-	}
-}
-
-func (r *Redis) Do(out []byte) []byte {
-	return r.do(0, out)
-}
-
-func (r *Redis) do(t int, out []byte) []byte {
-	if t == 10 {
-		return variables.ERROR_TIMEOUT_REDIS
-	} else if r.conn == nil {
-		if t != 0 {
-			time.Sleep(1 * time.Second)
-		}
-		r.conn = r.connect()
-	} else {
-		if err := r.cmd(out); err == nil {
-			return r.read()
-		} else {
-			r.conn = nil
-		}
-	}
-	return r.do(t+1, out)
-}
-
-func (r *Redis) connect() *net.TCPConn {
-	log.Println("making redis connection", r.Host_ip, "sentinel", r.Sentinel.REDIS_IP)
-	var conn *net.TCPConn
-	addr, _ := net.ResolveTCPAddr("tcp", r.Sentinel.REDIS_IP)
+func (r *Redis) connect() {
+	addr, _ := net.ResolveTCPAddr("tcp", r.sentinel.GetRedis())
 
 	if c, err := net.DialTCP("tcp", nil, addr); err == nil {
-		conn = c
+		r.conn = c
 	}
+}
 
-	return conn
+func GetRedis(sentinel sentinel.SentinelInterface) RedisInterface {
+	return &Redis{sentinel: sentinel}
 }

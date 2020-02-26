@@ -6,19 +6,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"proxy/src/clients"
 	"proxy/src/redis"
 	"proxy/src/sentinel"
-	"proxy/src/variables"
 	"strings"
 
 	"github.com/gorilla/mux"
 )
 
 type Api struct {
-	Sentinel *sentinel.Sentinel
 	Router   *mux.Router
-	Clients  *clients.Clients
+	sentinel sentinel.SentinelInterface
 }
 
 type Respond struct {

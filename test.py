@@ -6,10 +6,11 @@
 import time
 import redis
 
-r = redis.Redis(host='localhost', port=8080)
+r = redis.Redis(host='localhost', port=9999)
 
 while True:
-    #a = r.execute_command("get","foo")
+    a = r.execute_command("info")
+    print(a)
     a = r.get('foo')
     print(a)
     time.sleep(1)

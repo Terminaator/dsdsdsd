@@ -1,87 +1,81 @@
 package sentinel
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"proxy/src/resp"
+	"proxy/src/socket/client"
 	"proxy/src/variables"
 	"strings"
 	"time"
 )
 
+type SentinelInterface interface {
+	Connect()
+	GetRedis() string
+}
+
 type Sentinel struct {
-	REDIS_IP   string
+	client     client.ClientInterface
+	REDIS_ADR  string
 	REDIS_NAME string
-	sentinel   *net.TCPAddr
 }
 
-func (s *Sentinel) read(conn *net.TCPConn) (string, error) {
-	err := s.write(conn)
+func (s *Sentinel) reader(reader io.Reader) error {
+	buf, err := resp.NewReader(reader).ReadObject()
 
-	buffer := make([]byte, 256)
-
-	_, err = conn.Read(buffer)
-
-	parts := strings.Split(string(buffer), "\r\n")
-
-	if err != nil || len(parts) < 5 {
-		return "", errors.New("failed to get sentinel")
+	if err != nil {
+		return err
 	}
-	return fmt.Sprintf("%s:%s", parts[2], parts[4]), err
-}
 
-func (s *Sentinel) write(conn *net.TCPConn) error {
-	_, err := conn.Write([]byte(fmt.Sprintf(variables.SENTINEL_COMMAND, s.REDIS_NAME)))
+	parts := strings.Split(string(buf), "\r\n")
+
+	if len(parts) > 4 {
+		s.newMaster(fmt.Sprintf("%s:%s", parts[2], parts[4]))
+	}
+
 	return err
 }
 
-func (s *Sentinel) checkMaster(ip string) {
-	if len(s.REDIS_IP) == 0 && s.REDIS_IP != ip {
-		log.Println("new redis master", ip)
-		s.REDIS_IP = ip
+func (s *Sentinel) newMaster(adr string) {
+	if len(s.REDIS_ADR) == 0 || adr != s.REDIS_ADR {
+		s.REDIS_ADR = adr
+		log.Println("New sentinel master", s.REDIS_ADR, s.REDIS_NAME, s.client.GetAdr())
 	}
+}
+
+func (s *Sentinel) write(writer io.Writer) error {
+	_, err := writer.Write([]byte(fmt.Sprintf(variables.SENTINEL_COMMAND, s.REDIS_NAME)))
+	return err
 }
 
 func (s *Sentinel) getMaster(conn *net.TCPConn) {
 	for {
-		if ip, err := s.read(conn); err == nil {
-			s.checkMaster(ip)
+		time.Sleep(1 * time.Second)
+
+		if err := s.write(conn); err == nil {
+			if err := s.reader(conn); err != nil {
+				go s.Connect()
+				break
+			}
 		} else {
-			go s.connect()
+			go s.Connect()
 			break
 		}
-
-		time.Sleep(1 * time.Second)
 	}
 }
 
-func (s *Sentinel) connect() {
-	if conn, err := net.DialTCP("tcp", nil, s.sentinel); err == nil {
-		s.getMaster(conn)
-	} else {
-		time.Sleep(1 * time.Second)
-		log.Println("wailed to resolve sentinel", s.sentinel.String())
-		s.init(s.sentinel.String())
-		go s.connect()
-	}
+func (s *Sentinel) Connect() {
+	log.Println("Starting sentinel")
+	s.getMaster(s.client.Dial())
 }
 
-func (s *Sentinel) init(sentinel string) {
-	adr, err := net.ResolveTCPAddr("tcp", sentinel)
-	if err != nil {
-		log.Fatal("Failed to resolve sentinel address", err)
-	}
-
-	s.sentinel = adr
+func (s *Sentinel) GetRedis() string {
+	return s.REDIS_ADR
 }
 
-func (s *Sentinel) Start(sentinel string) {
-	log.Println("starting sentinel")
-	s.init(sentinel)
-	s.connect()
-}
-
-func GetSentinel(name string) *Sentinel {
-	return &Sentinel{REDIS_NAME: name}
+func GetSentinel(name string, adr string) SentinelInterface {
+	return &Sentinel{REDIS_NAME: name, client: client.GetClient(adr)}
 }

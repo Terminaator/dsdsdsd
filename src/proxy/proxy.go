@@ -3,60 +3,37 @@ package proxy
 import (
 	"log"
 	"net"
-	"proxy/src/clients"
-	"proxy/src/proxy/connection"
+	"proxy/src/connection"
 	"proxy/src/sentinel"
+	"proxy/src/socket/server"
 )
 
 type ProxyInterface interface {
-	Start(string)
+	Start()
 }
 
 type Proxy struct {
-	listener *net.TCPListener
-	sentinel *sentinel.Sentinel
-	clients  *clients.Clients
-}
-
-func (p *Proxy) init(listen string) *net.TCPListener {
-	laddr, err := net.ResolveTCPAddr("tcp", listen)
-	if err != nil {
-		log.Fatal("Failed to resolve local address", err)
-	}
-
-	listener, err := net.ListenTCP("tcp", laddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return listener
+	server   *server.Server
+	sentinel sentinel.SentinelInterface
 }
 
 func (p *Proxy) connection(conn *net.TCPConn) {
-	connection := connection.GetConnection(
-		p.sentinel,
-		conn,
-		conn.RemoteAddr().(*net.TCPAddr).String(),
-		p.clients)
-
-	go connection.InPipe()
+	log.Println("New proxy connection from", p.server.ListenerAdr())
+	go connection.GetConnection(p.sentinel, conn, p.server.ListenerAdr()).InPipe()
 }
 
-func (p *Proxy) listen() {
-	log.Println("listening proxy", p.listener.Addr().String())
+func (p *Proxy) Start() {
+	log.Println("Listening proxy", p.server.ListenerAdr())
+
 	for {
-		if conn, err := p.listener.AcceptTCP(); err == nil {
+		if conn, err := p.server.Listener().AcceptTCP(); err == nil {
 			go p.connection(conn)
+		} else {
+			log.Fatal("Proxy failed", err)
 		}
 	}
 }
 
-func (p *Proxy) Start(listen string) {
-	p.listener = p.init(listen)
-
-	p.listen()
-}
-
-func GetProxy(sentinel *sentinel.Sentinel, clients *clients.Clients) ProxyInterface {
-	return &Proxy{sentinel: sentinel, clients: clients}
+func GetProxy(adr string, sentinel sentinel.SentinelInterface) ProxyInterface {
+	return &Proxy{sentinel: sentinel, server: &server.Server{Adr: adr}}
 }
